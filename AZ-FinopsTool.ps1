@@ -28,6 +28,7 @@ Subscription - Rodara o script em um Subscription.
 #>
 
 
+
 Function Get-AllAzTenants {
     $global:AzTenants = Get-AzTenant -WarningAction SilentlyContinue
 }
