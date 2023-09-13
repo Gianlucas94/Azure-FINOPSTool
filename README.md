@@ -74,15 +74,18 @@
 
 ### Built With
 
-> **[?]**
-> Please provide the technologies that are used in the project.
+>
+> Powershell
 
 ## Getting Started
 
 ### Prerequisites
 
-> **[?]**
-> What are the project requirements/dependencies?
+
+> https://github.com/charmbracelet/gum<br>
+> https://github.com/Azure/azure-powershell<br>
+> https://github.com/dfinke/ImportExcel
+
 
 ### Installation
 
