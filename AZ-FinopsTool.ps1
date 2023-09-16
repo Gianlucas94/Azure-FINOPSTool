@@ -27,16 +27,112 @@ Tenant - Rodara o script em todas as Subscriptions do Tenant.
 Subscription - Rodara o script em um Subscription.
 #>
 
+# Regular expression pattern for subscription names
+$RegexSubscription = "([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
+
+# Global Array to store Azure resource groups
+$Global:AzureResourceGroups = @()
+
+# Global variables for dates
+$global:DateLast30Days = (get-date).AddDays(-30)
+$global:DateToday = Get-Date
+
+# Arrays to store different types of resources
+$global:APIMS = @()
+$global:APPServices = @()
+$global:AppServicePlans = @()
+$global:CosmoDBs = @()
+$global:VMs = @()
+
+$global:ProgressPreference = "SilentlyContinue"
+$global:i = 0
+Function Write-Logo {
+    Clear-Host
+
+    # Define the cursor icon
+    $CursorIcon = [System.Convert]::toInt32("27A1", 16)  # Unicode code point for the cursor icon
+    $CursorIcon = [System.Char]::ConvertFromUtf32($CursorIcon)  # Convert the code point to a character
+
+    # Define the money icon
+    $MoneyIcon = [System.Convert]::toInt32("1F4B8", 16)  # Unicode code point for the money icon
+    $MoneyIcon = [System.Char]::ConvertFromUtf32($MoneyIcon)  # Convert the code point to a character
+
+    # Define the cloud icon
+    $CloudIcon = [System.Convert]::toInt32("2601", 16)  # Unicode code point for the cloud icon
+    $CloudIcon = [System.Char]::ConvertFromUtf32($CloudIcon)  # Convert the code point to a character
 
 
+    # Define the logo string
+    $logo = "     _     _____     _____ _                       
+    / \   |__  /    |  ___(_)_ __   ___  _ __  ___ 
+   / _ \    / /_____| |_  | | '_ \ / _ \| '_ \/ __|
+  / ___ \  / /|_____|  _| | | | | | (_) | |_) \__ \
+ /_/   \_\/____|    |_|   |_|_| |_|\___/| .__/|___/
+               _____           _        |_|        
+              |_   _|__   ___ | |                  
+                | |/ _ \ / _ \| |                  
+                | | (_) | (_) | |                  
+                |_|\___/ \___/|_|                  
+  _____ _____ _____ _____ _____ _____ _____ _____  
+ |_____|_____|_____|_____|_____|_____|_____|_____| 
+ $MoneyIcon   $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon
+                                                   "
+
+    # Apply the gum style to the logo
+    gum style --foreground 6 --border-foreground 212 --border rounded --bold --align center --width 70 --margin "0 10" --padding "1 2" $logo
+
+}
+function Update-ProgressBar {
+    param(
+        [int] $PercentComplete
+    )
+
+    $progressBarWidth = 50
+    $completedLength = [math]::Ceiling($progressBarWidth * ($PercentComplete / 100))
+    $remainingLength = $progressBarWidth - $completedLength
+    $progressBar = ('#' * $completedLength) + ('-' * $remainingLength)
+
+    Write-Host -NoNewline "`r[$progressBar] $PercentComplete%"
+}
+Function Set-Login {
+    # Get the current login ID from the Azure context
+    $loginId = Get-AzContext | Select-Object Account
+
+    # Prompt the user to enter their login ID
+    $loginId = gum input --value $loginId.Account --header "Please provide your loginId:" --placeholder "Email or UPN" --header.foreground="2"
+
+    # Try to connect to Azure using the provided login ID
+    try {
+        Connect-AzAccount -AccountId $loginId -WarningAction SilentlyContinue -ErrorAction Stop
+    }
+    catch {
+        # If the login fails, display an error message and prompt the user to try again
+        Write-Host "Login Failed, please try again" -ForegroundColor Red
+        Set-Login
+    }
+}
 Function Get-AllAzTenants {
+    # Get all Azure tenants and store them in the global variable $AzTenants
     $global:AzTenants = Get-AzTenant -WarningAction SilentlyContinue
 }
 Function Get-AllAzSubscriptions {
+    # Retrieve Azure subscriptions
     $global:AzSubscriptions = Get-AzSubscription -WarningAction SilentlyContinue
 }
+Function Set-SelectedAzSubscriptions {
+    # Prompt the user to select a subscription
+    $global:SelectedSubscriptions = gum choose --no-limit $AzSubscriptions.Name --header "Select the Subscription:" --cursor "$CursorIcon  " --cursor-prefix="[ ] " --selected-prefix="[X] " --unselected-prefix="[ ] "
+
+    # Check if a subscription was selected
+    if ($null -eq $SelectedSubscriptions) {
+        # If no subscription was selected, display an error message
+        Write-Host "No Subscription Selected!" -ForegroundColor Red
+        Clear-Host
+        Main
+    }
+}
 Function Get-APIMs {
-    # Parameter help description
+    
     [CmdletBinding()]
     param (
         [Parameter()]
@@ -44,6 +140,7 @@ Function Get-APIMs {
         $SubscriptionName
     )
 
+    # Define the APIM class
     class APIM {
         [string]$Name
         [string]$ResourceGroupName
@@ -54,16 +151,23 @@ Function Get-APIMs {
         [string]$Requests
         [string]$Id
     }
-    #APIMS = @()
+
+    # Get the Azure API Management instances
     $AzureAPIMS = Get-AzApiManagement | Select-Object Name, ResourceGroupName, SKU, Location, Id
 
-    #Contar APIM
+    # Count the number of APIM instances
     $APIMcount = $AzureAPIMS | Measure-Object
     $APIMcount = $APIMcount.Count
+
+    # Display the number of APIM instances found
     Write-Host "Numero de APIM encontradas na subscription " -NoNewline -f White ; Write-Host $SubscriptionName -NoNewline -f Green ; Write-Host ':'$APIMcount -ForegroundColor Yellow
 
+    # Iterate through each APIM instance
     foreach ($AP in $AzureAPIMS) {
+        # Create an instance of the APIM class
         [APIM]$APIM = [APIM]::new()
+    
+        # Set the properties of the APIM instance
         $APIM.Name = $AP.Name
         $APIM.ResourceGroupName = $AP.ResourceGroupName
         $APIM.SubscriptionId = $AP.Id
@@ -73,9 +177,15 @@ Function Get-APIMs {
         $APIM.SKU = $AP.SKU
         $APIM.Location = $AP.Location
         $APIM.Id = $AP.Id
-        $APIMMetricas = Get-AzMetric -ResourceId $AP.ID -MetricName "Requests" -StartTime $DateLast30Days -EndTime $DateToday -TimeGrain 01:00:00:00  -AggregationType "Total" -WarningAction 0
+    
+        # Get the APIM metrics for the "Requests" metric
+        $APIMMetricas = Get-AzMetric -ResourceId $AP.ID -MetricName "Requests" -StartTime $DateLast30Days -EndTime $DateToday -TimeGrain 01:00:00:00 -AggregationType "Total" -WarningAction 0
+    
+        # Calculate the total requests for the APIM instance
         $APIMTotalRequests = $APIMMetricas.Data.Total | Measure-Object -Sum
         $APIM.Requests = $APIMTotalRequests.Sum
+    
+        # Add the APIM instance to the global APIMS variable
         $global:APIMS += $APIM
     }
 }
@@ -352,63 +462,43 @@ Function ExportTo-Excel {
 
 
 Function Main {
-    #Variaveis globais
-
-    $RegexSubscription = "([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
-    $AzureResourceGroups = @()
-    
-    $global:DateLast30Days = (get-date).AddDays(-30)
-    $global:DateToday = Get-Date
-    
-    $global:APIMS = @()
-    $global:APPServices = @()
-    $global:AppServicePlans = @()
-    $global:CosmoDBs = @()
-    $global:VMs = @()
-
-
-
-    Clear-Host
-    $CursorIcon = [System.Convert]::toInt32("27A1", 16)
-    $CursorIcon = [System.Char]::ConvertFromUtf32($CursorIcon)
-    $MoneyIcon = [System.Convert]::toInt32("1F4B8", 16)
-    $MoneyIcon = [System.Char]::ConvertFromUtf32($MoneyIcon)
-    $CloudIcon = [System.Convert]::toInt32("2601", 16)
-    $CloudIcon = [System.Char]::ConvertFromUtf32($CloudIcon)
-
-    Write-Host "     _     _____     _____ _                       
-    / \   |__  /    |  ___(_)_ __   ___  _ __  ___ 
-   / _ \    / /_____| |_  | | '_ \ / _ \| '_ \/ __|
-  / ___ \  / /|_____|  _| | | | | | (_) | |_) \__ \
- /_/   \_\/____|    |_|   |_|_| |_|\___/| .__/|___/
-               _____           _        |_|        
-              |_   _|__   ___ | |                  
-                | |/ _ \ / _ \| |                  
-                | | (_) | (_) | |                  
-                |_|\___/ \___/|_|                  
-  _____ _____ _____ _____ _____ _____ _____ _____  
- |_____|_____|_____|_____|_____|_____|_____|_____| 
- $MoneyIcon   $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon    $CloudIcon     $MoneyIcon
-                                                   " -ForegroundColor 2
-
-    
-    $loginId = gum input --header "Please provide your loginId:" --placeholder "email or UPN" --header.foreground="2"
-    Connect-AzAccount -AccountId $loginId -WarningAction SilentlyContinue
+    Write-Logo
+    Set-Login
+   
+    # Prompt the user to select the scope
     $SelectedScope = gum choose Tenant Subscription --header "Select the Scope:" --cursor "$CursorIcon  "
-
+   
     switch ($SelectedScope) {
         'Tenant' {
+            # Get all Azure tenants
             Get-AllAzTenants
+   
+            # Prompt the user to select a tenant
             $SelectedTenant = gum choose $AzTenants.Name --header "Select the Tenant:" --cursor "$CursorIcon  "  --header.foreground="212"
 
+            # Get all Azure subscriptions
+            Get-AllAzSubscriptions
+   
+            # Loop through each subscription and perform actions
             Foreach ($AzSubscription in $AzSubscriptions) {
+                $i++
+
                 Set-AzContext -Subscription $AzSubscription.ID -WarningAction SilentlyContinue | Out-Null
-                Write-Host "Getting APIMS..." -ForegroundColor Yellow
+
                 Get-APIMs -SubscriptionName $AzSubscription.Name
-                Get-AppService
-                Get-AppServicePlan
-                Get-StartStopVMs
+                Get-AppService -SubscriptionName $AzSubscription.Name
+                Get-AppServicePlan -SubscriptionName $AzSubscription.Name
+                Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+
+                Write-Host
+                $percentage = ($i / $AzSubscriptions.Count) * 100
+                Update-ProgressBar -PercentComplete $percentage
+                Write-Host
+               
+                #Start-Sleep -Seconds 1
             }
+   
+            # Export data to Excel for each resource type
             ExportTo-Excel $APIMS 'API Management'
             ExportTo-Excel $APPServices 'App Services'
             ExportTo-Excel $AppServicePlans 'App Service Plan'
@@ -416,16 +506,24 @@ Function Main {
             ExportTo-Excel $VMs 'Virtual Machines'
         }
         'Subscription' {
+            # Get all Azure subscriptions
             Get-AllAzSubscriptions
-            $SelectedSubscriptions = gum choose --no-limit $AzSubscriptions.Name --header "Select the Subscription:" --cursor "$CursorIcon  " --cursor-prefix="[ ] " --selected-prefix="[X] " --unselected-prefix="[ ] "
+   
+            # Set the selected subscriptions
+            Set-SelectedAzSubscriptions
+   
             Write-Host "Getting APIMS..." -ForegroundColor Yellow
+   
+            # Loop through each selected subscription and perform actions
             Foreach ($AzSubscription in $SelectedSubscriptions) {
                 Set-AzContext -Subscription $AzSubscription -WarningAction SilentlyContinue | Out-Null
                 Get-APIMs -SubscriptionName $AzSubscription
-                Get-AppService
-                Get-AppServicePlan
-                Get-StartStopVMs
+                Get-AppService -SubscriptionName $AzSubscription
+                Get-AppServicePlan -SubscriptionName $AzSubscription
+                Get-StartStopVMs -SubscriptionName $AzSubscription
             }
+   
+            # Export data to Excel for each resource type
             ExportTo-Excel $APIMS 'API Management'
             ExportTo-Excel $APPServices 'App Services'
             ExportTo-Excel $AppServicePlans 'App Service Plan'
@@ -434,7 +532,6 @@ Function Main {
         }
     }
 }
-
 Main
 
 
