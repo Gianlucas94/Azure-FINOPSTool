@@ -84,7 +84,8 @@
 
 > https://github.com/charmbracelet/gum<br>
 > https://github.com/Azure/azure-powershell<br>
-> https://github.com/dfinke/ImportExcel
+> https://github.com/dfinke/ImportExcel<br>
+> AzureCLI
 
 
 ### Installation

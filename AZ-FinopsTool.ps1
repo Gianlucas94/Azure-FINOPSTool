@@ -27,6 +27,11 @@ Tenant - Rodara o script em todas as Subscriptions do Tenant.
 Subscription - Rodara o script em um Subscription.
 #>
 
+#Dependeces
+#Install-Module Az.Reservations -Force
+#Install-Module Az.Advisor -Force
+#Azure CLI
+
 # Regular expression pattern for subscription names
 $RegexSubscription = "([A-Za-z0-9]+(-[A-Za-z0-9]+)+)"
 
@@ -60,7 +65,6 @@ Function Write-Logo {
     # Define the cloud icon
     $CloudIcon = [System.Convert]::toInt32("2601", 16)  # Unicode code point for the cloud icon
     $CloudIcon = [System.Char]::ConvertFromUtf32($CloudIcon)  # Convert the code point to a character
-
 
     # Define the logo string
     $logo = "     _     _____     _____ _                       
@@ -459,8 +463,64 @@ Function ExportTo-Excel {
     }
     $Table | Export-Excel @ExcelParams -WorksheetName $WorkSheetName -AutoSize -ConditionalText $ConditionalText -erroraction 'silentlycontinue'
 }
+Function Get-AdvisorCostRecommendations {
+    # $global:AzureAdvisorRecommendations = @()
+    # $global:AzureAdvisorRecommendations = Get-AzAdvisorRecommendation | Where-Object {$_.Category -eq "Cost"} | Select-Object ImpactedValue, ShortDescriptionSolution, LastUpdated
 
+    # class Recommendation {
+    #     [string]$ImpactedValue
+    #     [string]$ShortDescriptionSolution
+    #     [string]$LastUpdated
+    # }
+    # $global:Recomendations = @()
+    # Foreach ($AzureRecommendation in $AzureAdvisorRecommendations) {
+    #     [Recommendation]$Recommendation = [Recommendation]::new()
+    #     $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
+    #     $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescriptionSolution
+    #     $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
+    #     $global:Recomendations += $Recommendation
+    }
+    #$PriceUri = "https://prices.azure.com/api/retail/prices?$filter"
+    #$filter = "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4' and armRegionName eq 'southcentralus'"
+    #$Items = Invoke-WebRequest -Uri $PriceUri
 
+    
+    $AzureRecommendations = az advisor recommendation list
+    $AzureRecommendations = $AzureRecommendations | ConvertFrom-Json
+    $AzureRecommendations = $AzureRecommendations | Where-Object {$_.category -eq "Cost"}
+
+    class Recommendation {
+        [string]$ImpactedField
+        [string]$ImpactedValue
+        [string]$ActualSKU
+        [string]$RegionId
+        [string]$ShortDescriptionProblem
+        [string]$ShortDescriptionSolution
+        [string]$AnnualSavingsAmount
+        [string]$RecommendationType
+        [string]$TargetSku
+        [string]$QtyRI
+        [string]$RI
+        [string]$LastUpdated
+    }
+    $Recommendations = @()
+    Foreach ($AzureRecommendation in $AzureRecommendations) {
+        [Recommendation]$Recommendation = [Recommendation]::new()
+        $Recommendation.ImpactedField = $AzureRecommendation.ImpactedField
+        $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
+        $Recommendation.ActualSKU = $AzureRecommendation.extendedProperties.DisplaySKU
+        $Recommendation.RegionId = $AzureRecommendation.extendedProperties.RegionId
+        $Recommendation.ShortDescriptionProblem = $AzureRecommendation.ShortDescription.Problem
+        $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescription.Solution
+        $Recommendation.AnnualSavingsAmount = "$($AzureRecommendation.extendedProperties.savingsCurrency) $($AzureRecommendation.extendedProperties.AnnualSavingsAmount)"
+        $Recommendation.RecommendationType = $AzureRecommendation.extendedProperties.RecommendationType
+        $Recommendation.TargetSku = $AzureRecommendation.extendedProperties.TargetSku
+        $Recommendation.QtyRI = $AzureRecommendation.extendedProperties.displayQty
+        $Recommendation.RI = $AzureRecommendation.extendedProperties.term
+        $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
+        $global:Recommendations += $Recommendation
+    }
+$Recommendations | FL
 Function Main {
     Write-Logo
     Set-Login
@@ -485,10 +545,11 @@ Function Main {
 
                 Set-AzContext -Subscription $AzSubscription.ID -WarningAction SilentlyContinue | Out-Null
 
-                Get-APIMs -SubscriptionName $AzSubscription.Name
-                Get-AppService -SubscriptionName $AzSubscription.Name
-                Get-AppServicePlan -SubscriptionName $AzSubscription.Name
-                Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+                #Get-APIMs -SubscriptionName $AzSubscription.Name
+                #Get-AppService -SubscriptionName $AzSubscription.Name
+                #Get-AppServicePlan -SubscriptionName $AzSubscription.Name
+                #Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+                Get-AdvisorCostRecommendations
 
                 Write-Host
                 $percentage = ($i / $AzSubscriptions.Count) * 100
@@ -521,6 +582,7 @@ Function Main {
                 Get-AppService -SubscriptionName $AzSubscription
                 Get-AppServicePlan -SubscriptionName $AzSubscription
                 Get-StartStopVMs -SubscriptionName $AzSubscription
+                Get-AdvisorCostRecommendations
             }
    
             # Export data to Excel for each resource type
@@ -533,10 +595,6 @@ Function Main {
     }
 }
 Main
-
-
-
-
 
 
 
