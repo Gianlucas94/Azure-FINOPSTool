@@ -30,6 +30,7 @@ Subscription - Rodara o script em um Subscription.
 #Dependeces
 #Install-Module Az.Reservations -Force
 #Install-Module Az.Advisor -Force
+#Install-Module Az.Context -Force
 #Azure CLI
 
 # Regular expression pattern for subscription names
@@ -479,10 +480,10 @@ Function Get-AdvisorCostRecommendations {
     #     $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescriptionSolution
     #     $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
     #     $global:Recomendations += $Recommendation
-    }
-    #$PriceUri = "https://prices.azure.com/api/retail/prices?$filter"
-    #$filter = "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4' and armRegionName eq 'southcentralus'"
-    #$Items = Invoke-WebRequest -Uri $PriceUri
+    
+    # $filter = "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4' and armRegionName eq 'southcentralus'"
+    # $PriceUri = "https://prices.azure.com/api/retail/prices?$filter"
+    # $Items = Invoke-WebRequest -Uri $PriceUri
 
     
     $AzureRecommendations = az advisor recommendation list
@@ -520,7 +521,9 @@ Function Get-AdvisorCostRecommendations {
         $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
         $global:Recommendations += $Recommendation
     }
-$Recommendations | FL
+    
+    $Recommendations | FL
+}
 Function Main {
     Write-Logo
     Set-Login
