@@ -52,6 +52,12 @@ $global:VMs = @()
 
 $global:ProgressPreference = "SilentlyContinue"
 $global:i = 0
+
+$ExcelParams = @{
+    Path      = 'C:\Temp\Finops.xlsx'
+    Show      = $false
+    Verbose   = $false
+}
 Function Write-Logo {
     Clear-Host
 
@@ -109,6 +115,7 @@ Function Set-Login {
     # Try to connect to Azure using the provided login ID
     try {
         Connect-AzAccount -AccountId $loginId -WarningAction SilentlyContinue -ErrorAction Stop
+        az login --only-show-errors | Out-Null
     }
     catch {
         # If the login fails, display an error message and prompt the user to try again
@@ -460,6 +467,11 @@ Function ExportTo-Excel {
                 New-COnditionalText -ConditionalType Equal "Com Tag de START/STOP" White Green
             )
         }
+        "Recommendations" {
+            $ConditionalText = $(
+                New-ConditionalText -ConditionalType LessThanOrEqual 0 DarkRed LightPink
+            )
+        }
 
     }
     $Table | Export-Excel @ExcelParams -WorksheetName $WorkSheetName -AutoSize -ConditionalText $ConditionalText -erroraction 'silentlycontinue'
@@ -504,7 +516,7 @@ Function Get-AdvisorCostRecommendations {
         [string]$RI
         [string]$LastUpdated
     }
-    $Recommendations = @()
+    $global:Recommendations = @()
     Foreach ($AzureRecommendation in $AzureRecommendations) {
         [Recommendation]$Recommendation = [Recommendation]::new()
         $Recommendation.ImpactedField = $AzureRecommendation.ImpactedField
@@ -521,8 +533,6 @@ Function Get-AdvisorCostRecommendations {
         $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
         $global:Recommendations += $Recommendation
     }
-    
-    $Recommendations | FL
 }
 Function Main {
     Write-Logo
@@ -538,20 +548,19 @@ Function Main {
    
             # Prompt the user to select a tenant
             $SelectedTenant = gum choose $AzTenants.Name --header "Select the Tenant:" --cursor "$CursorIcon  "  --header.foreground="212"
-
+            #Set-AzContext -Tenant $SelectedTenant -WarningAction SilentlyContinue | Out-Null
             # Get all Azure subscriptions
             Get-AllAzSubscriptions
    
             # Loop through each subscription and perform actions
             Foreach ($AzSubscription in $AzSubscriptions) {
                 $i++
-
                 Set-AzContext -Subscription $AzSubscription.ID -WarningAction SilentlyContinue | Out-Null
 
-                #Get-APIMs -SubscriptionName $AzSubscription.Name
-                #Get-AppService -SubscriptionName $AzSubscription.Name
-                #Get-AppServicePlan -SubscriptionName $AzSubscription.Name
-                #Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+                Get-APIMs -SubscriptionName $AzSubscription.Name
+                Get-AppService -SubscriptionName $AzSubscription.Name
+                Get-AppServicePlan -SubscriptionName $AzSubscription.Name
+                Get-StartStopVMs -SubscriptionName $AzSubscription.Name
                 Get-AdvisorCostRecommendations
 
                 Write-Host
@@ -568,6 +577,7 @@ Function Main {
             ExportTo-Excel $AppServicePlans 'App Service Plan'
             #ExportTo-Excel $CosmoDBs 'CosmoDB'
             ExportTo-Excel $VMs 'Virtual Machines'
+            ExportTo-Excel $Recommendations 'Recommendations'
         }
         'Subscription' {
             # Get all Azure subscriptions
@@ -594,6 +604,7 @@ Function Main {
             ExportTo-Excel $AppServicePlans 'App Service Plan'
             #ExportTo-Excel $CosmoDBs 'CosmoDB'
             ExportTo-Excel $VMs 'Virtual Machines'
+            ExportTo-Excel $Recommendations 'Recommendations'
         }
     }
 }
