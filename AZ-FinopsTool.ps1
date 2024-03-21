@@ -54,9 +54,9 @@ $global:ProgressPreference = "SilentlyContinue"
 $global:i = 0
 
 $ExcelParams = @{
-    Path      = 'C:\Temp\Finops.xlsx'
-    Show      = $false
-    Verbose   = $false
+    Path    = 'C:\Temp\Finops.xlsx'
+    Show    = $false
+    Verbose = $false
 }
 Function Write-Logo {
     Clear-Host
@@ -114,8 +114,8 @@ Function Set-Login {
 
     # Try to connect to Azure using the provided login ID
     try {
-        Connect-AzAccount -AccountId $loginId -WarningAction SilentlyContinue -ErrorAction Stop
-        az login --only-show-errors | Out-Null
+        #Connect-AzAccount -AccountId $loginId -WarningAction SilentlyContinue -ErrorAction Stop
+        #az login --only-show-errors | Out-Null
     }
     catch {
         # If the login fails, display an error message and prompt the user to try again
@@ -128,8 +128,17 @@ Function Get-AllAzTenants {
     $global:AzTenants = Get-AzTenant -WarningAction SilentlyContinue
 }
 Function Get-AllAzSubscriptions {
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $TenantId
+    )
     # Retrieve Azure subscriptions
     $global:AzSubscriptions = Get-AzSubscription -WarningAction SilentlyContinue
+
+    $global:AzSubscriptions = $AzSubscriptions | Where-Object { $_.HomeTenantId -eq $TenantId }
+
 }
 Function Set-SelectedAzSubscriptions {
     # Prompt the user to select a subscription
@@ -141,6 +150,30 @@ Function Set-SelectedAzSubscriptions {
         Write-Host "No Subscription Selected!" -ForegroundColor Red
         Clear-Host
         Main
+    }
+}
+Function Set-SelectedResources {
+    # Prompt the user to select the resources that he wants to get.
+    $ResourcesScope = @(
+        "All Resources"
+        "Selected Resources"
+    )
+    $SelectedResourceScope = gum choose --limit 1 $ResourcesScope --header "Select the Resource Scope:" --cursor "$CursorIcon  "
+    $Resources = @(
+        "APIM"
+        "AppService"
+        "AppServicePlan"
+        "StartStopVMs"
+        "CosmoDBs"
+        "AdvisorCostRecommendations"
+        "ApplicationGateways"
+    )
+
+    If ($SelectedResourceScope -eq "All Resources") {
+        $global:SelectedResources = $Resources
+    }
+    If ($SelectedResourceScope -eq "Selected Resources") {
+        $global:SelectedResources = gum choose --no-limit $Resources --header "Select the Resource type:" --cursor "$CursorIcon  " --cursor-prefix="[ ] " --selected-prefix="[X] " --unselected-prefix="[ ] " 
     }
 }
 Function Get-APIMs {
@@ -348,15 +381,22 @@ Function Get-StartStopVMs {
     }
 }
 Function Get-CosmoDBs {
+    # Parameter help description
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $SubscriptionName
+    )
     $AzureCosmoDBs = @()
     Foreach ($AzureResourceGroup in $AzureResourceGroups) {
-        $AzureCosmoDBs += Get-AzCosmosDBAccount -ResourceGroupName $AzureResourceGroup.ResourceGroupName
+        $AzureCosmoDBs += Get-AzCosmosDBAccount -ResourceGroupName $AzureResourceGroup.ResourceGroupName -ErrorAction SilentlyContinue
     }
 
     #Contar CosmoDBs
     $CosmoDBcount = $AzureCosmoDBs | Measure-Object
     $CosmoDBcount = $CosmoDBcount.Count
-    Write-Host "Numero de CosmoDB encontrados na subscription " -NoNewline -f White ; Write-Host $AzureSubscription.Name -NoNewline -f Green ; Write-Host ':'$CosmoDBcount -ForegroundColor Yellow
+    Write-Host "Numero de CosmoDB encontrados na subscription " -NoNewline -f White ; Write-Host $SubscriptionName -NoNewline -f Green ; Write-Host ':'$CosmoDBcount -ForegroundColor Yellow
 
 
     #$CosmoDBs = @()
@@ -433,6 +473,107 @@ Function Get-CosmoDBsThroughput {
     
     }
 }
+Function Get-AdvisorCostRecommendations {
+    # $global:AzureAdvisorRecommendations = @()
+    # $global:AzureAdvisorRecommendations = Get-AzAdvisorRecommendation | Where-Object {$_.Category -eq "Cost"} | Select-Object ImpactedValue, ShortDescriptionSolution, LastUpdated
+
+    # class Recommendation {
+    #     [string]$ImpactedValue
+    #     [string]$ShortDescriptionSolution
+    #     [string]$LastUpdated
+    # }
+    # $global:Recomendations = @()
+    # Foreach ($AzureRecommendation in $AzureAdvisorRecommendations) {
+    #     [Recommendation]$Recommendation = [Recommendation]::new()
+    #     $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
+    #     $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescriptionSolution
+    #     $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
+    #     $global:Recomendations += $Recommendation
+    
+    # $filter = "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4' and armRegionName eq 'southcentralus'"
+    # $PriceUri = "https://prices.azure.com/api/retail/prices?$filter"
+    # $Items = Invoke-WebRequest -Uri $PriceUri
+
+    
+    $AzureRecommendations = az advisor recommendation list
+    $AzureRecommendations = $AzureRecommendations | ConvertFrom-Json
+    $AzureRecommendations = $AzureRecommendations | Where-Object { $_.category -eq "Cost" }
+
+    class Recommendation {
+        [string]$ImpactedField
+        [string]$ImpactedValue
+        [string]$ActualSKU
+        [string]$RegionId
+        [string]$ShortDescriptionProblem
+        [string]$ShortDescriptionSolution
+        [string]$AnnualSavingsAmount
+        [string]$RecommendationType
+        [string]$TargetSku
+        [string]$QtyRI
+        [string]$RI
+        [string]$LastUpdated
+    }
+    $global:Recommendations = @()
+    Foreach ($AzureRecommendation in $AzureRecommendations) {
+        [Recommendation]$Recommendation = [Recommendation]::new()
+        $Recommendation.ImpactedField = $AzureRecommendation.ImpactedField
+        $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
+        $Recommendation.ActualSKU = $AzureRecommendation.extendedProperties.DisplaySKU
+        $Recommendation.RegionId = $AzureRecommendation.extendedProperties.RegionId
+        $Recommendation.ShortDescriptionProblem = $AzureRecommendation.ShortDescription.Problem
+        $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescription.Solution
+        $Recommendation.AnnualSavingsAmount = "$($AzureRecommendation.extendedProperties.savingsCurrency) $($AzureRecommendation.extendedProperties.AnnualSavingsAmount)"
+        $Recommendation.RecommendationType = $AzureRecommendation.extendedProperties.RecommendationType
+        $Recommendation.TargetSku = $AzureRecommendation.extendedProperties.TargetSku
+        $Recommendation.QtyRI = $AzureRecommendation.extendedProperties.displayQty
+        $Recommendation.RI = $AzureRecommendation.extendedProperties.term
+        $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
+        $global:Recommendations += $Recommendation
+    }
+}
+Function Get-ApplicationGateways {
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $SubscriptionName
+    )
+
+    Class AppGW {
+        [string]$Name
+        [string]$ResourceGroupName
+        [string]$SubscriptionId
+        [string]$SubscriptionName
+        [string]$Location
+        [string]$Sku
+        [string]$OperationalState
+        [string]$Requests
+    }
+
+    $AzureAppGWs = Get-AzApplicationGateway | Select-Object
+
+    # Count the number of APPGw instances
+    $APPGwCount = $AzureAppGWs | Measure-Object
+    $APPGwCount = $APPGwCount.Count
+
+    Write-Host "Numero de APP Service encontradas na subscription " -NoNewline -f White ; Write-Host $SubscriptionName -NoNewline -f Green ; Write-Host ':'$APPGwCount -ForegroundColor Yellow
+
+    $global:AppGWs = @()
+    Foreach ($AzureAppGW in $AzureAppGWs) {
+        [AppGW]$AppGW = [AppGW]::new()
+        $AppGW.Name = $AzureAppGW.Name
+        $AppGW.ResourceGroupName = $AzureAppGW.ResourceGroupName
+        $AppGW.SubscriptionId = $AzureAppGW.Id.Split("/")[2]
+        $AppGW.SubscriptionName = (Get-AzSubscription -SubscriptionId $AppGW.SubscriptionId).Name
+        $AppGW.Location = $AzureAppGW.Location
+        $AppGW.Sku = $(Get-AzApplicationGatewaySku -ApplicationGateway $AzureAppGW | Select-Object Name).Name
+        $AppGW.OperationalState = $AzureAppGW.OperationalState
+        $AppGwMetricas = Get-AzMetric -ResourceId $AzureAppGW.Id -MetricName "TotalRequests" -StartTime $DateLast30Days -EndTime $DateToday -TimeGrain 01:00:00:00  -AggregationType "Total" -WarningAction 0
+        $AppGwMetricas = $AppGwMetricas.Data.Total | Measure-Object -Sum
+        $AppGW.Requests = $AppGwMetricas.Sum
+        $global:AppGWs += $AppGW
+    }
+}
 Function ExportTo-Excel {
     Param(
         [Parameter()]
@@ -472,74 +613,21 @@ Function ExportTo-Excel {
                 New-ConditionalText -ConditionalType LessThanOrEqual 0 DarkRed LightPink
             )
         }
+        "App Gateway" {
+            $ConditionalText = $(
+                New-ConditionalText -ConditionalType LessThanOrEqual 0 DarkRed LightPink
+            )
+        }
 
     }
     $Table | Export-Excel @ExcelParams -WorksheetName $WorkSheetName -AutoSize -ConditionalText $ConditionalText -erroraction 'silentlycontinue'
-}
-Function Get-AdvisorCostRecommendations {
-    # $global:AzureAdvisorRecommendations = @()
-    # $global:AzureAdvisorRecommendations = Get-AzAdvisorRecommendation | Where-Object {$_.Category -eq "Cost"} | Select-Object ImpactedValue, ShortDescriptionSolution, LastUpdated
-
-    # class Recommendation {
-    #     [string]$ImpactedValue
-    #     [string]$ShortDescriptionSolution
-    #     [string]$LastUpdated
-    # }
-    # $global:Recomendations = @()
-    # Foreach ($AzureRecommendation in $AzureAdvisorRecommendations) {
-    #     [Recommendation]$Recommendation = [Recommendation]::new()
-    #     $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
-    #     $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescriptionSolution
-    #     $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
-    #     $global:Recomendations += $Recommendation
-    
-    # $filter = "serviceName eq 'Virtual Machines' and armSkuName eq 'Standard_D4' and armRegionName eq 'southcentralus'"
-    # $PriceUri = "https://prices.azure.com/api/retail/prices?$filter"
-    # $Items = Invoke-WebRequest -Uri $PriceUri
-
-    
-    $AzureRecommendations = az advisor recommendation list
-    $AzureRecommendations = $AzureRecommendations | ConvertFrom-Json
-    $AzureRecommendations = $AzureRecommendations | Where-Object {$_.category -eq "Cost"}
-
-    class Recommendation {
-        [string]$ImpactedField
-        [string]$ImpactedValue
-        [string]$ActualSKU
-        [string]$RegionId
-        [string]$ShortDescriptionProblem
-        [string]$ShortDescriptionSolution
-        [string]$AnnualSavingsAmount
-        [string]$RecommendationType
-        [string]$TargetSku
-        [string]$QtyRI
-        [string]$RI
-        [string]$LastUpdated
-    }
-    $global:Recommendations = @()
-    Foreach ($AzureRecommendation in $AzureRecommendations) {
-        [Recommendation]$Recommendation = [Recommendation]::new()
-        $Recommendation.ImpactedField = $AzureRecommendation.ImpactedField
-        $Recommendation.ImpactedValue = $AzureRecommendation.ImpactedValue
-        $Recommendation.ActualSKU = $AzureRecommendation.extendedProperties.DisplaySKU
-        $Recommendation.RegionId = $AzureRecommendation.extendedProperties.RegionId
-        $Recommendation.ShortDescriptionProblem = $AzureRecommendation.ShortDescription.Problem
-        $Recommendation.ShortDescriptionSolution = $AzureRecommendation.ShortDescription.Solution
-        $Recommendation.AnnualSavingsAmount = "$($AzureRecommendation.extendedProperties.savingsCurrency) $($AzureRecommendation.extendedProperties.AnnualSavingsAmount)"
-        $Recommendation.RecommendationType = $AzureRecommendation.extendedProperties.RecommendationType
-        $Recommendation.TargetSku = $AzureRecommendation.extendedProperties.TargetSku
-        $Recommendation.QtyRI = $AzureRecommendation.extendedProperties.displayQty
-        $Recommendation.RI = $AzureRecommendation.extendedProperties.term
-        $Recommendation.LastUpdated = $AzureRecommendation.LastUpdated
-        $global:Recommendations += $Recommendation
-    }
 }
 Function Main {
     Write-Logo
     Set-Login
    
     # Prompt the user to select the scope
-    $SelectedScope = gum choose Tenant Subscription --header "Select the Scope:" --cursor "$CursorIcon  "
+    $SelectedScope = gum choose Tenant Subscription Lighthouse --header "Select the Scope:" --cursor "$CursorIcon  "
    
     switch ($SelectedScope) {
         'Tenant' {
@@ -548,20 +636,42 @@ Function Main {
    
             # Prompt the user to select a tenant
             $SelectedTenant = gum choose $AzTenants.Name --header "Select the Tenant:" --cursor "$CursorIcon  "  --header.foreground="212"
-            #Set-AzContext -Tenant $SelectedTenant -WarningAction SilentlyContinue | Out-Null
+            $SelectedTenantId = $($AzTenants | Where-Object { $_.Name -eq $SelectedTenant}).TenantId
+            Set-AzContext -Tenant $SelectedTenantId -WarningAction SilentlyContinue
             # Get all Azure subscriptions
-            Get-AllAzSubscriptions
-   
-            # Loop through each subscription and perform actions
-            Foreach ($AzSubscription in $AzSubscriptions) {
-                $i++
-                Set-AzContext -Subscription $AzSubscription.ID -WarningAction SilentlyContinue | Out-Null
+            Get-AllAzSubscriptions -TenantId $SelectedTenantId
+            
+            Set-SelectedAzSubscriptions
 
-                Get-APIMs -SubscriptionName $AzSubscription.Name
-                Get-AppService -SubscriptionName $AzSubscription.Name
-                Get-AppServicePlan -SubscriptionName $AzSubscription.Name
-                Get-StartStopVMs -SubscriptionName $AzSubscription.Name
-                Get-AdvisorCostRecommendations
+            Set-SelectedResources
+            # Loop through each subscription and perform actions
+            Foreach ($AzSubscription in $SelectedSubscriptions) {
+                $i++
+                Set-AzContext -Subscription $AzSubscription -WarningAction SilentlyContinue | Out-Null
+                $global:AzureResourceGroups = Get-AzResourceGroup
+                
+                If ($SelectedResources -contains "APIM") {
+                    Get-APIMs -SubscriptionName $AzSubscription
+                }
+                If ($SelectedResources -contains "AppService") {
+                    Get-AppService -SubscriptionName $AzSubscription
+                }
+                If ($SelectedResources -contains "AppServicePlan") {
+                    Get-AppServicePlan -SubscriptionName $AzSubscription
+                }
+                If ($SelectedResources -contains "StartStopVMs") {
+                    Get-StartStopVMs -SubscriptionName $AzSubscription
+                }
+                If ($SelectedResources -contains "CosmoDBs") {
+                    Get-CosmoDBs -SubscriptionName $AzSubscription
+                }
+                If ($SelectedResources -contains "AdvisorCostRecommendations") {
+                    Get-AdvisorCostRecommendations
+                }
+                If ($SelectedResources -contains "ApplicationGateways") {
+                    Get-ApplicationGateways $AzSubscription
+                }
+                
 
                 Write-Host
                 $percentage = ($i / $AzSubscriptions.Count) * 100
@@ -575,36 +685,104 @@ Function Main {
             ExportTo-Excel $APIMS 'API Management'
             ExportTo-Excel $APPServices 'App Services'
             ExportTo-Excel $AppServicePlans 'App Service Plan'
-            #ExportTo-Excel $CosmoDBs 'CosmoDB'
+            ExportTo-Excel $CosmoDBs 'CosmoDB'
             ExportTo-Excel $VMs 'Virtual Machines'
             ExportTo-Excel $Recommendations 'Recommendations'
+            ExportTo-Excel $AppGWs 'App Gateway'
         }
         'Subscription' {
+
+            
             # Get all Azure subscriptions
             Get-AllAzSubscriptions
    
             # Set the selected subscriptions
             Set-SelectedAzSubscriptions
    
-            Write-Host "Getting APIMS..." -ForegroundColor Yellow
+            Set-SelectedResources
    
             # Loop through each selected subscription and perform actions
             Foreach ($AzSubscription in $SelectedSubscriptions) {
                 Set-AzContext -Subscription $AzSubscription -WarningAction SilentlyContinue | Out-Null
-                Get-APIMs -SubscriptionName $AzSubscription
-                Get-AppService -SubscriptionName $AzSubscription
-                Get-AppServicePlan -SubscriptionName $AzSubscription
-                Get-StartStopVMs -SubscriptionName $AzSubscription
-                Get-AdvisorCostRecommendations
+                $global:AzureResourceGroups = Get-AzResourceGroup
+                If ($SelectedResources -contains "APIM") {
+                    Get-APIMs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AppService") {
+                    Get-AppService -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AppServicePlan") {
+                    Get-AppServicePlan -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "StartStopVMs") {
+                    Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "CosmoDBs") {
+                    Get-CosmoDBs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AdvisorCostRecommendations") {
+                    Get-AdvisorCostRecommendations
+                }
+                If ($SelectedResources -contains "ApplicationGateways") {
+                    Get-ApplicationGateways $AzSubscription.Name
+                }
             }
    
             # Export data to Excel for each resource type
             ExportTo-Excel $APIMS 'API Management'
             ExportTo-Excel $APPServices 'App Services'
             ExportTo-Excel $AppServicePlans 'App Service Plan'
-            #ExportTo-Excel $CosmoDBs 'CosmoDB'
+            ExportTo-Excel $CosmoDBs 'CosmoDB'
             ExportTo-Excel $VMs 'Virtual Machines'
             ExportTo-Excel $Recommendations 'Recommendations'
+            ExportTo-Excel $AppGWs 'App Gateway'
+        }
+        'Lighthouse' {
+            $TenantId = gum input --header "Please provide the TenantID:" --placeholder "TenantId" --header.foreground="2"
+
+            # Get all Azure subscriptions
+            Get-AllAzSubscriptions -TenantId $TenantId
+               
+            # Set the selected subscriptions
+            Set-SelectedAzSubscriptions
+               
+            Set-SelectedResources
+               
+            # Loop through each selected subscription and perform actions
+            Foreach ($AzSubscription in $SelectedSubscriptions) {
+                Set-AzContext -Subscription $AzSubscription -WarningAction SilentlyContinue | Out-Null
+                $global:AzureResourceGroups = Get-AzResourceGroup
+                If ($SelectedResources -contains "APIM") {
+                    Get-APIMs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AppService") {
+                    Get-AppService -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AppServicePlan") {
+                    Get-AppServicePlan -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "StartStopVMs") {
+                    Get-StartStopVMs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "CosmoDBs") {
+                    Get-CosmoDBs -SubscriptionName $AzSubscription.Name
+                }
+                If ($SelectedResources -contains "AdvisorCostRecommendations") {
+                    Get-AdvisorCostRecommendations
+                }
+                If ($SelectedResources -contains "ApplicationGateways") {
+                    Get-ApplicationGateways $AzSubscription.Name
+                }
+            }
+
+            # Export data to Excel for each resource type
+            ExportTo-Excel $APIMS 'API Management'
+            ExportTo-Excel $APPServices 'App Services'
+            ExportTo-Excel $AppServicePlans 'App Service Plan'
+            ExportTo-Excel $CosmoDBs 'CosmoDB'
+            ExportTo-Excel $VMs 'Virtual Machines'
+            ExportTo-Excel $Recommendations 'Recommendations'
+            ExportTo-Excel $AppGWs 'App Gateway'
         }
     }
 }
